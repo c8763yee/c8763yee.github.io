@@ -1,0 +1,17 @@
+# c8763yee's website
+
+> I Use Fedora/Arch Linux BTW
+
+This is the llms.txt file for c8763yee's website. It provides a machine-readable directory of published articles and core pages for Large Language Models.
+
+## Core Pages
+- [Home](https://c8763yee.com/): Main blog entrance and latest post stream.
+- [About](https://c8763yee.com/about/): Author profile, technical stack, and background.
+- [Archive](https://c8763yee.com/archive/): Chronological index of all published writings.
+
+## Articles
+- [從個人電腦到資料中心：Linux 記憶體管理演化](https://c8763yee.com/posts/從個人電腦到資料中心linux-記憶體管理演化/): COSCUP 2026
+- [帶你深入淺出 Git 版本控制實戰](https://c8763yee.com/posts/帶你深入淺出-git-版本控制實戰/)
+
+## Full Text Dump
+- [Full Text Archive](https://c8763yee.com/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.
