@@ -11,7 +11,7 @@ This is the llms.txt file for c8763yee's website. It provides a machine-readable
 
 ## Articles
 - [從個人電腦到資料中心：Linux 記憶體管理演化](https://c8763yee.github.io/posts/從個人電腦到資料中心linux-記憶體管理演化/): COSCUP 2026
-- [帶你深入淺出 Git 版本控制實戰](https://c8763yee.github.io/posts/帶你深入淺出-git-版本控制實戰/)
+- [帶你深入淺出 Git 版本控制實戰](https://c8763yee.github.io/posts/帶你深入淺出-git-版本控制實戰/): NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。
 
 ## Full Text Dump
 - [Full Text Archive](https://c8763yee.github.io/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.

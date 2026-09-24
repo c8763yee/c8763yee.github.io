@@ -516,7 +516,8 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$
 - **URL**: https://c8763yee.github.io/posts/帶你深入淺出-git-版本控制實戰/
 - **Published**: 2026-01-28
 - **Category**: 教學
-- **Tags**: NUTC-IMAC 教學，Git
+- **Tags**: NUTC-IMAC 教學, Git
+- **Description**: NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。
 
 # 帶你深入淺出 Git 版本控制實戰
 課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)
@@ -528,7 +529,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$
 
 而透過「版本控制系統」可以清楚的記錄每個檔案是誰在什麼時候加進來、什麼時候被修改或刪除。Git 就是一種版本控制系統，也是目前業界最流行的版本控制系統，沒有之一。
 
-出社會工作，有 Git 幫你保留這些歷史紀錄跟證據，萬一齣事的時候你就能知道是從什麼時候開始就有問題，以及知道該找誰負責，再也不用自己背黑鍋了！
+出社會工作，有 Git 幫你保留這些歷史紀錄跟證據，萬一出事的時候你就能知道是從什麼時候開始就有問題，以及知道該找誰負責，再也不用自己背黑鍋了！
 ## 2. 事前準備
 1. 一臺電腦
 2. 註冊 GitHub 帳號
