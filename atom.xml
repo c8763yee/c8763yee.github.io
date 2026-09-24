@@ -501,7 +501,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 <hr />
 ]]></content>
     <author><name>c8763yee</name></author>
-    <category term="文章，f"/>
+    <category term="文章"/>
   </entry>
   <entry>
     <title>帶你深入淺出 Git 版本控制實戰</title>
