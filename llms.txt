@@ -1,16 +1,16 @@
-# Shirone
+# c8763yee's website
 
-> A Material 3 anime blog
+> I Use Linux BTW
 
-This is the llms.txt file for Shirone. It provides a machine-readable directory of published articles and core pages for Large Language Models.
+This is the llms.txt file for c8763yee's website. It provides a machine-readable directory of published articles and core pages for Large Language Models.
 
 ## Core Pages
-- [Home](https://shirone.mysqil.com/): Main blog entrance and latest post stream.
-- [About](https://shirone.mysqil.com/about/): Author profile, technical stack, and background.
-- [Archive](https://shirone.mysqil.com/archive/): Chronological index of all published writings.
+- [Home](https://c8763yee.github.io/): Main blog entrance and latest post stream.
+- [About](https://c8763yee.github.io/about/): Author profile, technical stack, and background.
+- [Archive](https://c8763yee.github.io/archive/): Chronological index of all published writings.
 
 ## Articles
-- [欢迎使用 Shirone 内容仓库](https://shirone.mysqil.com/posts/guide/): 这是一篇示例文章，展示了 Shirone 博客主题的排版样式与元数据配置。
+- [欢迎使用 Shirone 内容仓库](https://c8763yee.github.io/posts/guide/): 这是一篇示例文章，展示了 Shirone 博客主题的排版样式与元数据配置。
 
 ## Full Text Dump
-- [Full Text Archive](https://shirone.mysqil.com/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.
+- [Full Text Archive](https://c8763yee.github.io/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.

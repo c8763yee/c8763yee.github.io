@@ -1,4 +1,4 @@
-# Shirone - Full Content Archive
+# c8763yee's website - Full Content Archive
 
 > Generated on 2026-09-24. Contains full text of all public articles for LLM ingestion.
 
@@ -6,7 +6,7 @@
 
 ## 欢迎使用 Shirone 内容仓库
 
-- **URL**: https://shirone.mysqil.com/posts/guide/
+- **URL**: https://c8763yee.github.io/posts/guide/
 - **Published**: 2026-08-27
 - **Category**: 使用指南
 - **Tags**: Shirone, 博客, 指南
