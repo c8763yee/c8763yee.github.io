@@ -16,14 +16,14 @@
     <content type="html"><![CDATA[<h2>背景說明</h2>
 <p>資料中心：reclaim 是常態運轉的機制</p>
 <ul>
-<li>Memory overcommit 是商業模式的一部分。實體記憶體是伺服器最貴的元件之一，閒置的 RAM 就是燒掉的錢，分配給虛擬機器的記憶體總量超過實體容量，靠 reclaim 與 swap（或 zram/zswap、far memory）對沖。</li>
+<li>Memory overcommit 是商業模式的一部分。實體記憶體是伺服器最貴的元件之一，閒置的 RAM 就是燒掉的錢，配置給虛擬機器的記憶體總量超過實體容量，靠 reclaim 與 swap（或 zram/zswap、far memory）對沖。</li>
 <li>單機上千個 process 是常態：fork-based server（Apache prefork、PostgreSQL、早期 CGI）、KVM、container、每個租戶一組 process tree。cgroup 對每個租戶設 memory.max，memcg reclaim 隨時在跑。</li>
 <li>Proactive reclaim：與其等到 direct reclaim 卡住，不如平時就持續把 Cold page 擠出去（memory.reclaim、kswapd/MGLRU 式的背景老化）。</li>
 </ul>
 <p>那麼問題來了，作業系統到底要怎麼找到這些 Page？或者更精確地說，在回收 Page 之前系統需要知道：</p>
 <ol>
-<li>這個 Page 最近有沒有被使用?</li>
-<li>現在還有哪些行程在用它?</li>
+<li>這個 Page 最近有沒有被使用？</li>
+<li>現在還有哪些行程在用它？</li>
 </ol>
 <h2>正向走訪 Page</h2>
 <p>Task 存取一個虛擬位址時由 MMU 查詢 TLB，TLB miss 時由硬體的 page walker 自行走訪 page table 補上 TLB entry。只有當 walker 找不到 Entry 或權限違規時，CPU 才觸發 #PF 例外（x86 IDT vector 14，CR2 存出錯 VA），進入核心的 page fault 路徑。若該頁需要操作儲存裝置（例如 swap-in 或首次讀入 File-back Page/Folio），則屬於 Major fault，否則仍為 Minor fault。</p>
@@ -38,7 +38,7 @@
 <p>而這帶來以下兩個問題：</p>
 <ul>
 <li>成本與「系統上 PTE 總數」成正比，而不是與「需要回收的 Page 數」成正比。掃描大量映射著熱頁的頁表，是純粹的浪費。</li>
-<li>被多個 process 共享的 Page 必須等到所有映射都在各自的掃描中被拆掉，才真正可回收。核心無法主動選定一個 Page 一次拆光它的映射， Accessed bit（Page 熱度）也散落在各個 Page table 中，無法針對單一 Page 彙整</li>
+<li>被多個 process 共享的 Page 必須等到所有映射都在各自的掃描中被拆掉，才真正可回收。核心無法主動選定一個 Page 一次拆光它的映射，Accessed bit（Page 熱度）也散落在各個 Page table 中，無法針對單一 Page 彙整</li>
 </ul>
 <p>以 Linux v2.4 之前的 reclaim 為例。它會由 <code>swap_out()</code> 從 <code>init_mm</code> 開始走訪，線性掃描其 Page table，看哪個 PTE 指向的 Page 可以拆掉映射。</p>
 <h2>Linux 的 RMAP 發展</h2>
@@ -47,9 +47,9 @@
 <li>per-object (anon_vma): 2.6.7 ~ 2.6.33</li>
 <li>anon_vma_chain: 2.6.34 ~</li>
 </ul>
-<p>從 anon_vma_chain 之後 RMAP 的結構就大致固定，只在部分實作與架構進行修改</p>
+<p>從 anon_vma_chain 之後 RMAP 的結構就大致固定，只在部分實作與架構修改</p>
 <h3>per-page RMAP（pte_chain）</h3>
-<p>既然問題是「無法從 Page 找到所有 mapping 到該 Page 的 PTE 」，那麼最簡單的方式就是直接在 Page 紀錄所有對應到的 PTE。有鑑於此， Rik van Riel 在 <code>2.4.17-rmap-12e</code> 時提出 RMAP，具體實作是在 <code>struct page</code> 這個資料結構上加入 <code>pte_chain</code> 欄位，其指向一條串起所有對應 PTE 位址的鏈結串列，這樣在 Reclaim 時只需要走訪這個鍊結串列並檢查 Accessed Bit 。不用像之前走訪整個系統的所有 PTE 了，該 Patch 於 2.5.27 合併至主線。</p>
+<p>既然問題是「無法從 Page 找到所有 mapping 到該 Page 的 PTE」，那麼最簡單的方式就是直接在 Page 紀錄所有對應到的 PTE。有鑑於此，Rik van Riel 在 <code>2.4.17-rmap-12e</code> 時提出 RMAP，具體實作是在 <code>struct page</code> 這個資料結構上加入 <code>pte_chain</code> 欄位，其指向一條串起所有對應 PTE 位址的鏈結串列，這樣在 Reclaim 時只需要走訪這個鍊結串列並檢查 Accessed Bit。不用像之前走訪整個系統的所有 PTE 了，該 Patch 於 2.5.27 合併至主線。</p>
 <pre><code>digraph pte_chain {
     rankdir=LR;
     bgcolor="transparent";
@@ -113,7 +113,7 @@ pte_chain_idx(pc):   return pc-&gt;next_and_idx &amp; NRPTE;
 page_add_rmap(page, ptep);
 page_remove_rmap(page, ptep);
 </code></pre>
-<p>pte_chain 時期根本沒有 VMA 層級的插入與刪除。 記錄單位是 PTE。</p>
+<p>pte_chain 時期根本沒有 VMA 層級的插入與刪除。記錄單位是 PTE。</p>
 <pre><code>page_add_rmap(page, ptep);     /* 缺頁處理時，把 pte 位址串上該 page */
 page_remove_rmap(page, ptep);  /* unmap 時，線性掃描找到並移除 */
 </code></pre>
@@ -122,12 +122,12 @@ page_remove_rmap(page, ptep);  /* unmap 時，線性掃描找到並移除 */
 <h3>從 per-page 到 per-object 的 RMAP（anon_vma）</h3>
 <p>然而這項設計還是有問題，隨著共用 task 數增長，<code>pte_chain</code> 鏈結串列的長度也會增長，整個走訪的時間複雜度為 $O(N)\text{，N 為 pte_chain 鍊結串列的長度}$。
 除此之外，<code>pte_chain</code> 帶來的記憶體開銷與系統本身的記憶體大小成正比，由於 <code>pte_chain</code> 至少需要額外 12 Bytes 的空間，即使只是在配備 128MB RAM 的 32-bit 系統中，<code>pte_chain</code> 帶來的記憶體開銷也需要 400KB。</p>
-<p>考慮到 <code>pte_chain</code> 本身的記憶體開銷問題，社群接受度並不高，因此社群開始討論如何去除 <code>pte_chain</code> 記憶體開銷。對於 File-back page 可以從 <code>address-&gt;i_mmap</code> 反查使用的 PTE，然而 Anon page 沒有類似的資料結構，因此 <code>anon_vma</code> 出現了。</p>
+<p>考慮 <code>pte_chain</code> 本身的記憶體開銷問題，社群接受度並不高，因此社群開始討論如何去除 <code>pte_chain</code> 記憶體開銷。對於 File-back page 可以從 <code>address-&gt;i_mmap</code> 反查使用的 PTE，然而 Anon page 沒有類似的資料結構，因此 <code>anon_vma</code> 出現了。</p>
 <p>:::info
 Anon page 與 File-back page 的差異主要在 page 來源與被回收後的處理方式。
-對於 file-back page，其來源於儲存裝置（如 HDD、SSD 等）中的檔案。在被回收後會檢查 Page 是否被修改 (dirty page) 來決定是直接丟棄或是將 dirty page 寫回儲存裝置後才丟棄<a href="https://docs.kernel.org/admin-guide/device-mapper/cache.html#cache-operating-modes">（Linux 的 Dirty Cache 行為預設為 writeback ）</a>
+對於 file-back page，其來源於儲存裝置（如 HDD、SSD 等）中的檔案。在被回收後會檢查 Page 是否被修改 (dirty page) 來決定是直接丟棄或是將 dirty page 寫回儲存裝置後才丟棄<a href="https://docs.kernel.org/admin-guide/device-mapper/cache.html#cache-operating-modes">（Linux 的 Dirty Cache 行為預設為 writeback）</a>
 :::</p>
-<p>在 <code>2.6.7</code> ，RMAP 從原本的由 Page 擴展 <code>pte_chain</code> 串連改為讓 Anon/File-back page 共用 <code>mapping</code> 欄位，其中 File-back page 放 <code>address_space</code>， Anon page 放 <code>anon_vma</code>，並透過該指標的 LSB 判斷具體存放內容。</p>
+<p>在 <code>2.6.7</code> ，RMAP 從原本的由 Page 擴充 <code>pte_chain</code> 串連改為讓 Anon/File-back page 共用 <code>mapping</code> 欄位，其中 File-back page 放 <code>address_space</code>，Anon page 放 <code>anon_vma</code>，並透過該指標的 LSB 判斷具體存放內容。</p>
 <pre><code>struct page {
 	...
 	struct address_space *mapping;
@@ -207,7 +207,7 @@ Anon page 與 File-back page 的差異主要在 page 來源與被回收後的處
 <p>2004 年引入的 anon_vma 解決了 pte_chain 的記憶體開銷，但它對 fork() 的處理過於粗糙：子行程的 VMA 直接掛進親代行程的 anon_vma，整個行程家族共用同一個 anon_vma。
 <img src="/images/screenshot/h9TKwHMEQ_-nkUGJqdVWdA-03-BkWjJ8_ezl-9be9e6b4.png" alt="image" /></p>
 <p>Andrew morton 曾經在 2003 年 object rmap 被合併前針對該機制提出疑惑，object rmap 設計是走訪整個物件 (如 anon_vma 或 address_space) 上關聯的所有 vma，這時一定會走訪到完全無關於要回收 Page 的 vma，並且花費大量時間在走訪動作。反而是 pte_chain 只需要針對 page 相關的 pte 走訪即可。同時他還用一個極端案例說明問題：對於使用相同檔案的 1000 個 Task，當每個 Task 在相同檔案使用 1000 個 vma 時，總共會有 100 萬個 vma，並且在 unmap 時無論如何都需要走訪這 100 萬個 vma。雖然他只提到 File-back page，然而既然說是設計本身問題，代表 Anon page 也有可能出現相同問題。</p>
-<p>值得一提的是，Andrew 當時本人傾向認為這只是「理論上可能發生」，問題不大，畢竟 2.4 的 virtual scan 設計也有相同問題但沒人遇到。然而 7 年後，Andrew morton 擔心的事確實發生了。</p>
+<p>Andrew 當時本人傾向認為這只是「理論上可能發生」，問題不大，畢竟 2.4 的 virtual scan 設計也有相同問題但沒人遇到。然而 7 年後，Andrew morton 擔心的事確實發生了。</p>
 <blockquote>
 <p>Without the anon_vma changes, when AIM7 hits around 9.7k
 users (on a test box with 16GB RAM and not quite enough IO),
@@ -215,7 +215,7 @@ the system ends up running &gt;99% in system time, with every
 CPU on the same anon_vma lock in the pageout code.</p>
 </blockquote>
 <p>Rik van Riel 發現 AIM7 Benchmark 當使用者數量到 9.7k 時卡死，並且大部分時間都在搶佔 anon_vma 的鎖上面，這也印證了上面提到的需要花費大量時間在走訪的問題。</p>
-<p>有鑑於此，Rik van Riel 針對上述問題提出修改的 PATCH，具體想法為針對各個行程建立一個 <code>anon_vma</code> 並使用 <code>anon_vma_chain</code> 資料結構串連 anon_vma 與 vma，再使用 same_vma 與 <code>same_anon_vma</code> 將映射到相同的 「<code>vma</code> 或 <code>anon_vma</code>」 的 avc 串連起來，行成多對多的關聯。</p>
+<p>有鑑於此，Rik van Riel 針對上述問題提出修改的 PATCH，具體想法為針對各個行程建立一個 <code>anon_vma</code> 並使用 <code>anon_vma_chain</code> 資料結構串連 anon_vma 與 vma，再使用 same_vma 與 <code>same_anon_vma</code> 將映射到相同的「<code>vma</code> 或 <code>anon_vma</code>」的 avc 串連起來，行成多對多的關聯。</p>
 <p>應用此 PATCH 後 AIM7 到 29.7k 個使用者才開始卡死，並且瓶頸變為 I/O 等待。</p>
 <pre><code>struct anon_vma_chain {
 	struct vm_area_struct *vma;
@@ -417,7 +417,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 </li>
 <li>direct reclaim
 <ul>
-<li>反應式，觸發於可用記憶體極度缺乏 （水位低於 WMARK_MIN）</li>
+<li>反應式，觸發於可用記憶體極度缺乏（水位低於 WMARK_MIN）</li>
 <li>同步執行，Page fault 時檢查記憶體水位</li>
 <li>水位提昇至 WMARK_LOW 後停止</li>
 </ul>
@@ -452,7 +452,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 </li>
 </ul>
 <h4>LSF MM 19</h4>
-<p>考慮到這個 Reclaim 策略無法在 Userspace 處理，因此由 Shakeel Butt 主導，在 LSF MM 19 上提議將這個 Reclaim 策略推到Upstream</p>
+<p>考慮這個 Reclaim 策略無法在 Userspace 處理，因此由 Shakeel Butt 主導，在 LSF MM 19 上提議將這個 Reclaim 策略推到 Upstream</p>
 <ul>
 <li>社群發言與提問
 <ul>
@@ -479,7 +479,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 <ul>
 <li>將監測粒度從 Google 上面架構的 Page 改為 Region (可自訂 Region 大小)</li>
 <li>使用抽樣法觀測 Region 熱度</li>
-<li>每次採樣在每個 region 內隨機挑一個 Page，等一個 interval 後檢查它是否被存取，命中就把該 region 的 nr_accesses 加 1。</li>
+<li>每次取樣在每個 region 內隨機挑一個 Page，等一個 interval 後檢查它是否被存取，命中就把該 region 的 nr_accesses 加 1。</li>
 </ul>
 </li>
 <li>Adaptive Regions Adjustment
@@ -501,7 +501,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 <hr />
 ]]></content>
     <author><name>c8763yee</name></author>
-    <category term="文章,f"/>
+    <category term="文章，f"/>
   </entry>
   <entry>
     <title>帶你深入淺出 Git 版本控制實戰</title>
@@ -511,17 +511,17 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
     <updated>2026-01-28T17:56:05.000Z</updated>
     <summary></summary>
     <content type="html"><![CDATA[<h1>帶你深入淺出 Git 版本控制實戰</h1>
-<p>課程連結: ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)</p>
-<h2>1. 版本控制是什麼？爲什麼要做版本控制</h2>
-<p>版本控制是一種管理軟件開發過程中對code變更的技術。它允許開發者跟蹤和管理代碼的歷史變更，協作開發，並且可以在需要時恢復到先前的版本。</p>
-<p>很多人作版本控制的方法是把檔案複製到另一個目錄（如果他們夠聰明的話，他們還會幫資料夾加上時間）。 這種做法很常見，因為這樣做很簡單，但是卻也非常容易產生離譜的錯誤。 這種做法非常容易搞混資料夾，意外寫錯檔案或複製覆蓋到不想要的檔案。</p>
+<p>課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)</p>
+<h2>1. 版本控制是什麼？為什麼要做版本控制</h2>
+<p>版本控制是一種管理軟體開發過程中對 code 變更的技術。它允許開發者跟蹤和管理程式碼的歷史變更，協作開發，並且可以在需要時恢復到先前的版本。</p>
+<p>很多人作版本控制的方法是把檔案複製到另一個目錄（如果他們夠聰明的話，他們還會幫資料夾加上時間）。這種做法很常見，因為這樣做很簡單，但是卻也非常容易產生離譜的錯誤。這種做法非常容易搞混資料夾，意外寫錯檔案或複製覆蓋到不想要的檔案。</p>
 <p>而透過「版本控制系統」可以清楚的記錄每個檔案是誰在什麼時候加進來、什麼時候被修改或刪除。Git 就是一種版本控制系統，也是目前業界最流行的版本控制系統，沒有之一。</p>
-<p>出社會工作，有 Git 幫你保留這些歷史紀錄跟證據，萬一出事的時候你就能知道是從什麼時候開始就有問題，以及知道該找誰負責，再也不用自己背黑鍋了！</p>
+<p>出社會工作，有 Git 幫你保留這些歷史紀錄跟證據，萬一齣事的時候你就能知道是從什麼時候開始就有問題，以及知道該找誰負責，再也不用自己背黑鍋了！</p>
 <h2>2. 事前準備</h2>
 <ol>
-<li>一台電腦</li>
-<li>註冊Github帳號</li>
-<li>檢查電腦是否已安裝Git</li>
+<li>一臺電腦</li>
+<li>註冊 GitHub 帳號</li>
+<li>檢查電腦是否已安裝 Git</li>
 </ol>
 <pre><code># Windows可以使用where來確定指令是否可用
 where git
@@ -531,22 +531,22 @@ which git
 # 或者
 command -v git
 </code></pre>
-<h2>3. 安裝Git</h2>
+<h2>3. 安裝 Git</h2>
 <ul>
-<li>進入<a href="https://git-scm.com/downloads">Git官網的下載頁面(https://git-scm.com/downloads)</a>後選擇自己的作業系統
+<li>進入<a href="https://git-scm.com/downloads">Git 官網的下載頁面(https://git-scm.com/downloads)</a>後選擇自己的作業系統
 <img src="https://hackmd.io/_uploads/H1kvGvKUR.png" alt="image" /></li>
 </ul>
 <h3>Windows</h3>
 <p><img src="https://hackmd.io/_uploads/B1NrzDYUA.png" alt="image" /></p>
 <ul>
-<li>下載完打開安裝檔後一直按Next就行</li>
+<li>下載完開啟安裝檔後一直按 Next 就行</li>
 </ul>
 <blockquote>
 <p>看到這個頁面就代表安裝成功了<img src="https://hackmd.io/_uploads/Bksfg3Jv0.png" alt="image" /></p>
 </blockquote>
 <h3>Linux/macOS</h3>
 <ul>
-<li>macOS與Linux則需要使用指令安裝</li>
+<li>macOS 與 Linux 則需要使用指令安裝</li>
 </ul>
 <pre><code># macOS
 brew install git
@@ -573,19 +573,19 @@ sudo dnf install git
 <h2>4. 基礎概念</h2>
 <p><img src="https://hackmd.io/_uploads/ryY3kSSuh.png" alt="" />
 Git 主要分為 4 個區塊及 4 種狀態</p>
-<h3>Git區塊</h3>
+<h3>Git 區塊</h3>
 <ul>
-<li><strong>Working Directory (在此簡稱: W)</strong>: 現在存在於資料夾內的、編輯器可以打開的位置。</li>
-<li><strong>Staging Area (在此簡稱: S)</strong>: 暫存狀態。</li>
-<li><strong>Local Repository (在此簡稱: L)</strong>: 本地(自己的電腦上的)倉庫。</li>
-<li><strong>Remote Repository (在此簡稱: R)</strong>: 遠端(不在自己的電腦上的)倉庫。</li>
+<li><strong>Working Directory (在此簡稱：W)</strong>：現在存在於資料夾內的、編輯器可以打開的位置。</li>
+<li><strong>Staging Area (在此簡稱：S)</strong>：暫存狀態。</li>
+<li><strong>Local Repository (在此簡稱：L)</strong>：本地（自己的電腦上的）倉庫。</li>
+<li><strong>Remote Repository (在此簡稱：R)</strong>：遠端（不在自己的電腦上的）倉庫。</li>
 </ul>
-<h3>Git狀態</h3>
+<h3>Git 狀態</h3>
 <ul>
-<li><strong>Untracked</strong>: 未被追蹤。</li>
-<li><strong>Unmodified</strong>: 追蹤中，未修改。</li>
-<li><strong>Modified</strong>: 追蹤中，已修改。</li>
-<li><strong>Staged</strong>: 追蹤中，待提交。</li>
+<li><strong>Untracked</strong>：未被追蹤。</li>
+<li><strong>Unmodified</strong>：追蹤中，未修改。</li>
+<li><strong>Modified</strong>：追蹤中，已修改。</li>
+<li><strong>Staged</strong>：追蹤中，待提交。</li>
 </ul>
 <p>&lt;!-- Working Directory 和 Remote Repository 分別代表手上電腦編輯器開啟的檔案及遠端 GitHub 頁面上看到的檔案。</p>
 <p>Staging Area 是本地端暫存的檔案，檔案需要先被加入追蹤，才有資格進入 Staging Area ，而沒被加入的檔案就是 Untracked 狀態。</p>
@@ -596,13 +596,13 @@ Git 主要分為 4 個區塊及 4 種狀態</p>
 <h4>相關指令</h4>
 <ul>
 <li>
-<p><code>git -h</code>: 顯示Git的幫助訊息</p>
+<p><code>git -h</code>：顯示 Git 的幫助訊息</p>
 <ul>
-<li><code>git [指令] -h</code>: 顯示特定Git指令的幫助訊息</li>
+<li><code>git [指令] -h</code>：顯示特定 Git 指令的幫助訊息</li>
 </ul>
 </li>
 <li>
-<p><code>git init</code>:在當前目錄下建立一個<code>.git</code>的隱藏資料夾用來儲存Git的相關資訊</p>
+<p><code>git init</code>：在當前目錄下建立一個<code>.git</code>的隱藏資料夾用來儲存 Git 的相關資訊</p>
 <ul>
 <li>其他選項</li>
 </ul>
@@ -611,17 +611,17 @@ git init -b &lt;分支名稱&gt;    # 初始化時同時將預設分支設定為
 </code></pre>
 <p>:::warning
 &lt;font size=8&gt;注意!!!!!&lt;/font&gt;
-在初始化Git後，我們需要先設定使用者名稱與email，這樣除了可以讓Git知道是誰在使用，也可以讓其他人知道是誰做了這個commit。</p>
+在初始化 Git 後，我們需要先設定使用者名稱與 email，這樣除了可以讓 Git 知道是誰在使用，也可以讓其他人知道是誰做了這個 commit。</p>
 <pre><code># 這邊的`--global`代表全域設定，也就是說這個設定會套用到所有的Git專案
 # 如果只想要套用到特定的專案，可以將`--global`拿掉。
 git config --global user.name &lt;你的名稱&gt;
 git config --global user.email &lt;你的email&gt;
 </code></pre>
-<p>設定完之後，就可以真正開始使用Git了。
+<p>設定完之後，就可以真正開始使用 Git 了。
 :::</p>
 </li>
 <li>
-<p><code>git add &lt;檔案名稱&gt;</code>: 將檔案加入Staging Area</p>
+<p><code>git add &lt;檔案名稱&gt;</code>：將檔案加入 Staging Area</p>
 <ul>
 <li>一次可以加入多個檔案，也可以使用<code>git add .</code>將目前資料夾下的所有檔案加入</li>
 <li>其他選項</li>
@@ -632,7 +632,7 @@ git add -f          # 強制加入檔案
 </code></pre>
 </li>
 <li>
-<p><code>git commit -m &lt;訊息&gt;</code>: 將Staging Area的檔案提交到Local Repository</p>
+<p><code>git commit -m &lt;訊息&gt;</code>：將 Staging Area 的檔案提交到 Local Repository</p>
 <ul>
 <li><code>-m</code>後面的訊息是這次提交的訊息，可以讓其他人知道這次提交的目的</li>
 <li>也可以不加<code>-m</code>，這樣會進入一個編輯器讓你輸入訊息</li>
@@ -643,18 +643,18 @@ git commit --amend -m &lt;訊息&gt; # 修改上一次的commit訊息
 </code></pre>
 </li>
 <li>
-<p><code>git status</code>: 查看目前Local Repository與Staging Area的狀態</p>
+<p><code>git status</code>：檢視目前 Local Repository 與 Staging Area 的狀態</p>
 <ul>
-<li>會顯示目前有哪些檔案在Untracked、Modified、Staged等狀態</li>
+<li>會顯示目前有哪些檔案在 Untracked、Modified、Staged 等狀態</li>
 </ul>
 </li>
 <li>
-<p><code>git diff</code>: 查看與上一版本之差異。</p>
+<p><code>git diff</code>：檢視與上一版本之差異。</p>
 </li>
 <li>
-<p><code>git reset &lt;檔案名稱&gt;</code>: 將檔案從Staging Area移除</p>
+<p><code>git reset &lt;檔案名稱&gt;</code>：將檔案從 Staging Area 移除</p>
 <ul>
-<li>預設會將指定的檔案從Staging Area移除，但不會影響Working Directory</li>
+<li>預設會將指定的檔案從 Staging Area 移除，但不會影響 Working Directory</li>
 <li>其他選項</li>
 </ul>
 <pre><code>git reset HEAD           # 將所有在Staging Area的檔案移除
@@ -663,8 +663,8 @@ git reset --hard         # 將所有在Staging Area的檔案移除並且捨棄Wo
 </li>
 </ul>
 <h2>遠端操作</h2>
-<p>在講解遠端操作前，我們需要先設定好遠端倉庫的SSH Key，這樣才能夠透過SSH的方式連接到遠端倉庫。</p>
-<h3>建立SSH Key</h3>
+<p>在講解遠端操作前，我們需要先設定好遠端倉庫的 SSH Key，這樣才能夠透過 SSH 的方式連線到遠端倉庫。</p>
+<h3>建立 SSH Key</h3>
 <pre><code>ssh-keygen -t ed25519 -C "&lt;你的email&gt;"
 # 或者，如果你的電腦不支援ed25519
 ssh-keygen -t rsa -b 4096 -C "&lt;你的email&gt;"
@@ -686,15 +686,15 @@ ssh-keygen -t rsa -b 4096 -C "&lt;你的email&gt;"
 notepad ~/.ssh/id_ed25519.pub
 </code></pre>
 <ul>
-<li>複製公鑰內容，並且將公鑰加入到遠端倉庫的SSH Key設定中(以Github為例)
+<li>複製公鑰內容，並且將公鑰加入到遠端儲存庫的 SSH Key 設定中(以 GitHub 為例)
 <ul>
-<li>進入Github的設定頁面
+<li>進入 GitHub 的設定頁面
 <img src="https://hackmd.io/_uploads/H197l6cU0.png" alt="image" /></li>
 <li>選擇<code>SSH and GPG keys</code>
 <img src="https://hackmd.io/_uploads/SJbdxT5LC.png" alt="image" /></li>
 <li>按下<code>New SSH Key</code>
 <img src="https://hackmd.io/_uploads/rJF9x65UC.png" alt="image" /></li>
-<li>在<code>Title</code>中輸入自己取的SSH Key名稱，然後在<code>key</code>輸入剛才的SSH公鑰。最後按下<code>Add SSH Key</code>就完成了
+<li>在<code>Title</code>中輸入自己取的 SSH Key 名稱，然後在<code>key</code>輸入剛才的 SSH 公鑰。最後按下<code>Add SSH Key</code>就完成了
 <img src="https://hackmd.io/_uploads/HkOogaq8C.png" alt="image" /></li>
 </ul>
 </li>
@@ -702,7 +702,7 @@ notepad ~/.ssh/id_ed25519.pub
 <h3>遠端相關指令</h3>
 <ul>
 <li>
-<p><code>git remote</code>: 查看目前有哪些遠端倉庫</p>
+<p><code>git remote</code>：檢視目前有哪些遠端倉庫</p>
 <ul>
 <li>顯示目前有哪些遠端倉庫，並且會標示預設的遠端倉庫</li>
 <li>其他選項</li>
@@ -715,7 +715,7 @@ git remote rename &lt;舊遠端倉庫名稱&gt; &lt;新遠端倉庫名稱&gt;  #
 </code></pre>
 </li>
 <li>
-<p><code>git branch</code>: 查看目前有哪些分支</p>
+<p><code>git branch</code>：檢視目前有哪些分支</p>
 <ul>
 <li>會顯示目前有哪些分支，並且會標示目前所在的分支</li>
 <li>其他選項</li>
@@ -725,7 +725,7 @@ git branch -d &lt;分支名稱&gt; # 刪除一個分支
 </code></pre>
 </li>
 <li>
-<p><code>git checkout &lt;分支名稱&gt;</code>: 切換到指定的分支</p>
+<p><code>git checkout &lt;分支名稱&gt;</code>：切換到指定的分支</p>
 <ul>
 <li>其他選項</li>
 </ul>
@@ -734,16 +734,16 @@ git checkout -- &lt;檔案名稱&gt; # 捨棄對檔案的修改
 </code></pre>
 </li>
 <li>
-<p><code>git push &lt;遠端倉庫名稱&gt; &lt;分支名稱&gt;</code>: 將Local Repository的分支推送到遠端倉庫</p>
+<p><code>git push &lt;遠端倉庫名稱&gt; &lt;分支名稱&gt;</code>：將 Local Repository 的分支推送到遠端儲存庫</p>
 <ul>
-<li>將Local Repository的分支推送到遠端倉庫</li>
+<li>將 Local Repository 的分支推送到遠端儲存庫</li>
 <li>其他選項</li>
 </ul>
 <pre><code>git push -u &lt;遠端倉庫名稱&gt; &lt;分支名稱&gt;  # 設定預設推送的遠端倉庫與分支
 </code></pre>
 </li>
 <li>
-<p><code>git clone &lt;遠端倉庫網址&gt;</code>: 複製一份遠端倉庫到本地</p>
+<p><code>git clone &lt;遠端倉庫網址&gt;</code>：複製一份遠端倉庫到本地</p>
 <ul>
 <li>在當前目錄下建立一個資料夾，資料夾名稱就是遠端倉庫的名稱</li>
 <li>其他選項</li>
@@ -752,9 +752,9 @@ git checkout -- &lt;檔案名稱&gt; # 捨棄對檔案的修改
 </code></pre>
 </li>
 <li>
-<p><code>git pull &lt;遠端倉庫名稱&gt; &lt;分支名稱&gt;</code>: 從遠端倉庫拉取分支</p>
+<p><code>git pull &lt;遠端倉庫名稱&gt; &lt;分支名稱&gt;</code>：從遠端儲存庫拉取分支</p>
 <ul>
-<li>將遠端倉庫的分支拉取到Local Repository</li>
+<li>將遠端儲存庫的分支拉取到 Local Repository</li>
 <li>其他選項</li>
 </ul>
 <pre><code>git pull  # 從預設遠端倉庫拉取分支
@@ -783,12 +783,12 @@ git pull --rebase  # 使用rebase方式拉取分支
 </ul>
 </li>
 </ul>
-<h2>Github Flow</h2>
+<h2>GitHub Flow</h2>
 <p><img src="https://hackmd.io/_uploads/B1m58Q7F2.png" alt="" /></p>
 <ul>
 <li>特點：
 <ul>
-<li>簡化版的Git Flow</li>
+<li>簡化版的 Git Flow</li>
 <li>Pull Request(PR)</li>
 </ul>
 </li>
@@ -802,7 +802,7 @@ git pull --rebase  # 使用rebase方式拉取分支
 <li>缺點：
 <ul>
 <li>正式環境更容易出問題</li>
-<li>在沒有適當測試和健全的CI/CD 、代碼審核……等過程下更容易發布問題到生產環境。</li>
+<li>在沒有適當測試和健全的 CI/CD、代碼審核……等過程下更容易發布問題到生產環境。</li>
 </ul>
 </li>
 </ul>
@@ -815,7 +815,7 @@ git pull --rebase  # 使用rebase方式拉取分支
 <ul>
 <li>upstream first(只有 main/master 作為主要分支)</li>
 </ul>
-<h2>有興趣自己可以去了解的知識</h2>
+<h2>有興趣自己可以去瞭解的知識</h2>
 <h3>指令類</h3>
 <ul>
 <li>git blame</li>
@@ -825,20 +825,20 @@ git pull --rebase  # 使用rebase方式拉取分支
 </ul>
 <h3>其他</h3>
 <ul>
-<li>commit message規範</li>
-<li>如何發pull request</li>
+<li>commit message 規範</li>
+<li>如何發 pull request</li>
 </ul>
 <h1>作業</h1>
 <p><img src="https://hackmd.io/_uploads/B1b-A75wA.png" alt="image" /></p>
 <ol>
-<li><a href="https://github.com/c8763yee/git-tutorial.git">複製（Fork）這個repo(https://github.com/c8763yee/git-lec)</a>到自己的Github，然後Clone到自己的電腦</li>
-<li>在shared資料夾將以下的code儲存並命名為自己的學號後push到自己剛才Fork的Github Repo</li>
+<li><a href="https://github.com/c8763yee/git-tutorial.git">複製（Fork）這個 repo(https://github.com/c8763yee/git-lec)</a>到自己的Github，然後Clone到自己的電腦</li>
+<li>在 shared 資料夾將以下的 code 儲存並命名為自己的學號後 push 到自己剛才 Fork 的 GitHub Repo</li>
 </ol>
 <pre><code>#!/bin/bash
 echo 'helloworld'
 </code></pre>
 <ol>
-<li>（可做可不做）發一個Pull Request到上面的repo並且在留言區中寫上自己的名字與學號</li>
+<li>（可做可不做）發一個 Pull Request 到上面的 repo 並且在留言區中寫上自己的名字與學號</li>
 </ol>
 <h1>表單連結</h1>
 <p><img src="https://hackmd.io/_uploads/H1F1f49PA.png" alt="image" /></p>
