@@ -10,7 +10,8 @@ This is the llms.txt file for c8763yee's website. It provides a machine-readable
 - [Archive](https://c8763yee.github.io/archive/): Chronological index of all published writings.
 
 ## Articles
-- [欢迎使用 Shirone 内容仓库](https://c8763yee.github.io/posts/guide/): 这是一篇示例文章，展示了 Shirone 博客主题的排版样式与元数据配置。
+- [從個人電腦到資料中心：Linux 記憶體管理演化](https://c8763yee.github.io/posts/從個人電腦到資料中心linux-記憶體管理演化/): COSCUP 2026
+- [帶你深入淺出 Git 版本控制實戰](https://c8763yee.github.io/posts/帶你深入淺出-git-版本控制實戰/)
 
 ## Full Text Dump
 - [Full Text Archive](https://c8763yee.github.io/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.
