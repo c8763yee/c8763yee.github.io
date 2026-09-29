@@ -485,7 +485,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$&lt;/p&gt;
 &lt;/ul&gt;
 &lt;hr /&gt;
 </content:encoded></item><item><title>帶你深入淺出 Git 版本控制實戰</title><link>https://c8763yee.github.io/posts/%E5%B8%B6%E4%BD%A0%E6%B7%B1%E5%85%A5%E6%B7%BA%E5%87%BA-git-%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6%E5%AF%A6%E6%88%B0/</link><guid isPermaLink="true">https://c8763yee.github.io/posts/%E5%B8%B6%E4%BD%A0%E6%B7%B1%E5%85%A5%E6%B7%BA%E5%87%BA-git-%E7%89%88%E6%9C%AC%E6%8E%A7%E5%88%B6%E5%AF%A6%E6%88%B0/</guid><description>NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。</description><pubDate>Wed, 28 Jan 2026 17:56:05 GMT</pubDate><content:encoded>&lt;h1&gt;帶你深入淺出 Git 版本控制實戰&lt;/h1&gt;
-&lt;p&gt;課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)&lt;/p&gt;
+&lt;p&gt;課程連結： &lt;img src=&quot;https://hackmd.io/_uploads/HJCgML9PA.png&quot; alt=&quot;image&quot; /&gt;&lt;/p&gt;
 &lt;h2&gt;1. 版本控制是什麼？為什麼要做版本控制&lt;/h2&gt;
 &lt;p&gt;版本控制是一種管理軟體開發過程中對 code 變更的技術。它允許開發者跟蹤和管理程式碼的歷史變更，協作開發，並且可以在需要時恢復到先前的版本。&lt;/p&gt;
 &lt;p&gt;很多人作版本控制的方法是把檔案複製到另一個目錄（如果他們夠聰明的話，他們還會幫資料夾加上時間）。這種做法很常見，因為這樣做很簡單，但是卻也非常容易產生離譜的錯誤。這種做法非常容易搞混資料夾，意外寫錯檔案或複製覆蓋到不想要的檔案。&lt;/p&gt;
@@ -584,7 +584,7 @@ Git 主要分為 4 個區塊及 4 種狀態&lt;/p&gt;
 git init -b &amp;lt;分支名稱&amp;gt;    # 初始化時同時將預設分支設定為指定的分支名稱
 &lt;/code&gt;&lt;/pre&gt;
 &lt;p&gt;:::warning
-&amp;lt;font size=8&amp;gt;注意!!!!!&amp;lt;/font&amp;gt;
+&amp;lt;font size=80&amp;gt;注意!!!!!&amp;lt;/font&amp;gt;
 在初始化 Git 後，我們需要先設定使用者名稱與 email，這樣除了可以讓 Git 知道是誰在使用，也可以讓其他人知道是誰做了這個 commit。&lt;/p&gt;
 &lt;pre&gt;&lt;code&gt;# 這邊的`--global`代表全域設定，也就是說這個設定會套用到所有的Git專案
 # 如果只想要套用到特定的專案，可以將`--global`拿掉。

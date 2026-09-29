@@ -511,7 +511,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
     <updated>2026-01-28T17:56:05.000Z</updated>
     <summary>NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。</summary>
     <content type="html"><![CDATA[<h1>帶你深入淺出 Git 版本控制實戰</h1>
-<p>課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)</p>
+<p>課程連結： <img src="https://hackmd.io/_uploads/HJCgML9PA.png" alt="image" /></p>
 <h2>1. 版本控制是什麼？為什麼要做版本控制</h2>
 <p>版本控制是一種管理軟體開發過程中對 code 變更的技術。它允許開發者跟蹤和管理程式碼的歷史變更，協作開發，並且可以在需要時恢復到先前的版本。</p>
 <p>很多人作版本控制的方法是把檔案複製到另一個目錄（如果他們夠聰明的話，他們還會幫資料夾加上時間）。這種做法很常見，因為這樣做很簡單，但是卻也非常容易產生離譜的錯誤。這種做法非常容易搞混資料夾，意外寫錯檔案或複製覆蓋到不想要的檔案。</p>
@@ -610,7 +610,7 @@ Git 主要分為 4 個區塊及 4 種狀態</p>
 git init -b &lt;分支名稱&gt;    # 初始化時同時將預設分支設定為指定的分支名稱
 </code></pre>
 <p>:::warning
-&lt;font size=8&gt;注意!!!!!&lt;/font&gt;
+&lt;font size=80&gt;注意!!!!!&lt;/font&gt;
 在初始化 Git 後，我們需要先設定使用者名稱與 email，這樣除了可以讓 Git 知道是誰在使用，也可以讓其他人知道是誰做了這個 commit。</p>
 <pre><code># 這邊的`--global`代表全域設定，也就是說這個設定會套用到所有的Git專案
 # 如果只想要套用到特定的專案，可以將`--global`拿掉。

@@ -520,7 +520,7 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$
 - **Description**: NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。
 
 # 帶你深入淺出 Git 版本控制實戰
-課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png =100x)
+課程連結： ![image](https://hackmd.io/_uploads/HJCgML9PA.png)
 
 ## 1. 版本控制是什麼？為什麼要做版本控制
 版本控制是一種管理軟體開發過程中對 code 變更的技術。它允許開發者跟蹤和管理程式碼的歷史變更，協作開發，並且可以在需要時恢復到先前的版本。
@@ -603,7 +603,7 @@ Git 主要分為 4 個區塊及 4 種狀態
     git init -b <分支名稱>    # 初始化時同時將預設分支設定為指定的分支名稱
     ```
 > **[WARNING]**
-> <font size=8>注意\!\!\!\!\!</font>
+> <font size=80>注意\!\!\!\!\!</font>
 >     在初始化 Git 後，我們需要先設定使用者名稱與 email，這樣除了可以讓 Git 知道是誰在使用，也可以讓其他人知道是誰做了這個 commit。
 > ```sh
     # 這邊的`--global`代表全域設定，也就是說這個設定會套用到所有的Git專案
