@@ -7,7 +7,7 @@
   <id>https://c8763yee.github.io/</id>
   <updated>2026-09-23T15:38:00.000Z</updated>
   <entry>
-    <title>從個人電腦到資料中心：Linux 記憶體管理演化</title>
+    <title>COSCUP 2026: 從個人電腦到資料中心：Linux 記憶體管理演化</title>
     <link href="https://c8763yee.github.io/posts/%E5%BE%9E%E5%80%8B%E4%BA%BA%E9%9B%BB%E8%85%A6%E5%88%B0%E8%B3%87%E6%96%99%E4%B8%AD%E5%BF%83linux-%E8%A8%98%E6%86%B6%E9%AB%94%E7%AE%A1%E7%90%86%E6%BC%94%E5%8C%96/" rel="alternate" type="text/html"/>
     <id>https://c8763yee.github.io/posts/%E5%BE%9E%E5%80%8B%E4%BA%BA%E9%9B%BB%E8%85%A6%E5%88%B0%E8%B3%87%E6%96%99%E4%B8%AD%E5%BF%83linux-%E8%A8%98%E6%86%B6%E9%AB%94%E7%AE%A1%E7%90%86%E6%BC%94%E5%8C%96/</id>
     <published>2026-09-23T15:38:00.000Z</published>
@@ -501,7 +501,519 @@ $n=clamp(cacheline\div sizeof(pte),2,8)$</p>
 <hr />
 ]]></content>
     <author><name>c8763yee</name></author>
-    <category term="文章"/>
+    <category term="研討會"/>
+  </entry>
+  <entry>
+    <title>COSCUP 2026: from COMPUTER to COMPUTing centER: The history of linux memory management</title>
+    <link href="https://c8763yee.github.io/posts/from-computer-to-computing-center-the-history-of-linux-memory-management/" rel="alternate" type="text/html"/>
+    <id>https://c8763yee.github.io/posts/from-computer-to-computing-center-the-history-of-linux-memory-management/</id>
+    <published>2026-08-09T00:00:00.000Z</published>
+    <updated>2026-08-09T00:00:00.000Z</updated>
+    <summary>English version of 從個人電腦到資料中心：Linux 記憶體管理演化</summary>
+    <content type="html"><![CDATA[<p><a href="https://c8763yee.github.io/posts/%E5%BE%9E%E5%80%8B%E4%BA%BA%E9%9B%BB%E8%85%A6%E5%88%B0%E8%B3%87%E6%96%99%E4%B8%AD%E5%BF%83linux-%E8%A8%98%E6%86%B6%E9%AB%94%E7%AE%A1%E7%90%86%E6%BC%94%E5%8C%96/">Mandarin version</a></p>
+<h2>Background</h2>
+<p>Data centers: reclaim is a routinely running mechanism</p>
+<ul>
+<li>Memory overcommit is part of the business model. Physical memory is one of the most expensive components in a server; idle RAM is money burned. The total memory allocated to virtual machines exceeds physical capacity, hedged by reclaim and swap (or zram/zswap, far memory).</li>
+<li>Thousands of processes on a single machine is the norm: fork-based servers (Apache prefork, PostgreSQL, early CGI), KVM, containers, one process tree per tenant. cgroups set memory.max for each tenant, and memcg reclaim is running all the time.</li>
+<li>Proactive reclaim: rather than waiting until direct reclaim stalls the system, continuously squeeze cold pages out during normal operation (memory.reclaim, kswapd/MGLRU-style background aging).</li>
+</ul>
+<p>So the question arises: how exactly does the operating system find these pages? Or more precisely, before reclaiming a page, the system needs to know:</p>
+<ol>
+<li>Has this page been used recently?</li>
+<li>Which processes are still using it?</li>
+</ol>
+<h2>Forward Page Walk</h2>
+<p>When a task accesses a virtual address, the MMU queries the TLB. On a TLB miss, the hardware page walker walks the page table on its own and fills in the TLB entry. Only when the walker cannot find an entry, or on a permission violation, does the CPU raise a #PF exception (x86 IDT vector 14, with the faulting VA stored in CR2) and enter the kernel's page fault path. If the page requires operating on a storage device (e.g., swap-in, or first-time read of a file-backed page/folio), it is a major fault; otherwise it remains a minor fault.</p>
+<p>On the kernel side, entry is via <code>__handle_mm_fault()</code>, which performs a level-by-level walk of five levels — PGD -&gt; P4D -&gt; PUD -&gt; PMD -&gt; PTE (when 5-level paging is not enabled, P4D is folded and it is effectively four levels). At each level, if the entry does not exist, the next-level page table is allocated as needed via <code>pud_alloc()</code>, <code>pmd_alloc()</code>, etc., and the corresponding link is established.</p>
+<p><img src="https://hackmd.io/_uploads/BkZFRH2IGe.png" alt="image" /></p>
+<h2>RMAP (Reverse Walk)</h2>
+<p>When available memory drops below the low watermark (<code>WMARK_LOW</code>), <code>kswapd</code> is woken up to perform asynchronous page reclaim in the background; when it drops below <code>WMARK_MIN</code>, direct reclaim is triggered and executed synchronously.</p>
+<p>During page reclaim, the Linux kernel picks candidate pages/folios off the LRU list for reclaim and checks the hotness of each page/folio. After confirming it is a cold page, it then checks which virtual memory (the <code>pte_t</code> pointed to by the <code>mm_struct</code> of each task) maps this page/folio, along with the page/folio hotness (based on the Accessed bit), and clears the PTE mappings as appropriate. Only then can it safely write an anon page/folio to swap, or directly drop / write back a file-backed page/folio.</p>
+<p><img src="https://hackmd.io/_uploads/rJ3FCSnIGe.png" alt="image" /></p>
+<h3>How would RMAP be implemented without RMAP metadata?</h3>
+<p>So the question arises: how do we know which virtual memory maps this page? Without any auxiliary data structure, the only option is to scan all tasks' mappings to find the PTE access state (Accessed bit) corresponding to the target page/folio, and reclaim the page/folio to swap when no task maps it.</p>
+<p>This brings two problems:</p>
+<ul>
+<li>The cost is proportional to the "total number of PTEs in the system," not to the "number of pages that need to be reclaimed." Scanning large numbers of page tables that map hot pages is pure waste.</li>
+<li>A page shared by multiple processes can only truly be reclaimed after all of its mappings have been torn down in their respective scans. The kernel cannot proactively pick a page and tear down all of its mappings at once, and the Accessed bit (page hotness) is scattered across various page tables and cannot be aggregated for a single page.</li>
+</ul>
+<p>Take reclaim before Linux v2.4 as an example. <code>swap_out()</code> would start walking from <code>init_mm</code>, linearly scanning its page tables to see which PTE points to a page whose mapping can be torn down.</p>
+<h2>The Evolution of RMAP in Linux</h2>
+<ul>
+<li>per-page (pte_chain): 2.5.27 ~ 2.6.6</li>
+<li>per-object (anon_vma): 2.6.7 ~ 2.6.33</li>
+<li>anon_vma_chain: 2.6.34 ~</li>
+</ul>
+<p>Since anon_vma_chain, the RMAP structure has remained largely fixed, with only partial changes to implementation and architecture.</p>
+<h3>per-page RMAP (pte_chain)</h3>
+<p>Since the problem is "there is no way to find all the PTEs mapped to a page from the page itself," the simplest approach is to record all the corresponding PTEs directly on the page. With this in mind, Rik van Riel proposed RMAP in <code>2.4.17-rmap-12e</code>. The concrete implementation adds a <code>pte_chain</code> field to the <code>struct page</code> data structure, pointing to a linked list that chains together the addresses of all corresponding PTEs. During reclaim, one only needs to walk this linked list and check the Accessed bit, instead of walking every PTE in the entire system as before. The patch was merged into mainline in 2.5.27.</p>
+<pre><code>digraph pte_chain {
+ rankdir=LR;
+ bgcolor="transparent";
+ nodesep=0.6;
+ ranksep=0.9;
+ node [shape=record, fontname="Courier New", fontsize=12,
+ color="#555555", fontcolor="#333333", margin="0.16,0.06"];
+ edge [color="#555555", arrowsize=0.8];
+
+ subgraph cluster_page {
+ color="transparent";
+ fontname="Courier New";
+ fontcolor="#333333";
+ label="struct page";
+ page [width=1.9, label="...\n\n\n...|&lt;chain&gt; pte.chain|...\n\n\n..."];
+ }
+
+ subgraph cluster_pc1 {
+ color="transparent";
+ fontname="Courier New";
+ fontcolor="#333333";
+ label="struct pte_chain";
+ pc1 [width=1.9, label="&lt;next&gt; next_and_idx|ptes[0]|...|ptes[NRPTE-1]"];
+ }
+
+ subgraph cluster_pc2 {
+ color="transparent";
+ fontname="Courier New";
+ fontcolor="#333333";
+ label="struct pte_chain";
+ pc2 [width=1.9, label="&lt;next&gt; next_and_idx|ptes[0]|...|ptes[NRPTE-1]"];
+ }
+
+ tail [shape=plaintext, fontname="Courier New", label=". . ."];
+
+ page:chain -&gt; pc1:next;
+ pc1:next -&gt; pc2:next;
+ pc2:next -&gt; tail;
+}
+</code></pre>
+<pre><code>#define NRPTE ((L1_CACHE_BYTES - sizeof(unsigned long))/sizeof(pte_addr_t))
+
+// NRPTE = 7 when L1_CACHE_BYTES = 64
+// 3 when L1_CACHE_BYTES = 32
+
+struct page {
+ ...
+ struct pte_chain *pte_chain; /* points to all PTEs mapping this page */
+ ...
+};
+
+struct pte_chain {
+ unsigned long next_and_idx;
+ pte_addr_t ptes[NRPTE];
+} ____cacheline_aligned;
+
+pte_chain_encode(pte_chain, idx): return (unsigned long)pte_chain | idx;
+pte_chain_next(pc): return (struct pte_chain *)(pc-&gt;next_and_idx &amp; ~NRPTE);
+pte_chain_idx(pc): return pc-&gt;next_and_idx &amp; NRPTE;
+
+page_add_rmap(page, ptep);
+page_remove_rmap(page, ptep);
+</code></pre>
+<p>In the pte_chain era there was no VMA-level insertion or removal at all. The unit of record was the PTE.</p>
+<pre><code>page_add_rmap(page, ptep); /* on page fault, link the pte address onto the page */
+page_remove_rmap(page, ptep); /* on unmap, linearly scan to find and remove it */
+</code></pre>
+<p><code>fork()</code>: <code>copy_page_range()</code> walks the PTEs one by one, calling <code>page_add_rmap()</code> once for each mapped page. Cost is O(number of pages), and memory is O(number of mappings).
+<code>munmap() / exit()</code>: <code>zap_pte_range()</code> calls <code>page_remove_rmap()</code> one by one, and removal requires a linear scan of the pte_chain to find the matching entry.</p>
+<h3>From per-page to per-object RMAP (anon_vma)</h3>
+<p>However, this design still had problems. As the number of sharing tasks grows, the length of the <code>pte_chain</code> linked list grows too, and the time complexity of the whole walk is $O(N)\text{, where N is the length of the pte_chain linked list}$.
+In addition, the memory overhead brought by <code>pte_chain</code> is proportional to the system's own memory size. Since <code>pte_chain</code> requires at least 12 extra bytes, even on a 32-bit system with just 128MB of RAM, the memory overhead of <code>pte_chain</code> amounts to 400KB.</p>
+<p>Given the memory overhead of <code>pte_chain</code>, community acceptance was low, and the community began discussing how to eliminate the <code>pte_chain</code> memory overhead. For file-backed pages, the PTEs in use can be found in reverse via <code>address-&gt;i_mmap</code>; anon pages, however, had no similar data structure — hence <code>anon_vma</code> was born.</p>
+<p>:::info
+The difference between anon pages and file-backed pages lies mainly in the page's origin and how it is handled after reclaim.
+For a file-backed page, its source is a file on a storage device (HDD, SSD, etc.). After being reclaimed, the kernel checks whether the page has been modified (dirty page) to decide whether to drop it directly or write the dirty page back to the storage device before dropping it <a href="https://docs.kernel.org/admin-guide/device-mapper/cache.html#cache-operating-modes">(Linux's default dirty cache behavior is writeback)</a>
+:::</p>
+<p>In <code>2.6.7</code>, RMAP changed from the original per-page <code>pte_chain</code> chaining to having anon and file-backed pages share the <code>mapping</code> field, where file-backed pages store an <code>address_space</code> and anon pages store an <code>anon_vma</code>, using the LSB of the pointer to determine which is actually stored.</p>
+<pre><code>struct page {
+ ...
+ struct address_space *mapping;
+ ...
+};
+</code></pre>
+<p><code>anon_vma</code> uses a linked list to chain together the VMAs that belong to it, and multiple pages map to the same <code>anon_vma</code>. On unmap, the page offset is computed from <code>page-&gt;index</code>, then each VMA in the <code>anon_vma</code> is walked; the page offset is added to the VMA's start address to determine whether the VMA is related to the page, and to find the corresponding PTE.</p>
+<pre><code>struct anon_vma {
+ spinlock_t lock;
+ struct list_head head; /* chains vma-&gt;anon_vma_node */
+};
+</code></pre>
+<ul>
+<li>Insertion (page fault): anon_vma_prepare(vma). First, find_mergeable_anon_vma() attempts to reuse the anon_vma of an adjacent mergeable VMA; only if none is found is a new one allocated, and finally list_add(&amp;vma-&gt;anon_vma_node, &amp;anon_vma-&gt;head).</li>
+<li>Insertion (fork): anon_vma_link(vma). The child process directly reuses the parent's anon_vma, hanging its own node onto the same list.</li>
+<li>Insertion (VMA split): the new VMA produced by split_vma() shares the same anon_vma, likewise via anon_vma_link().</li>
+<li>Removal: anon_vma_unlink(vma) — after list_del(), check whether the list is empty; if so, free the anon_vma.</li>
+</ul>
+<pre><code>digraph anon_vma {
+ rankdir=LR;
+ bgcolor="transparent";
+ nodesep=0.5;
+ ranksep=1.0;
+ node [shape=record, fontname="Courier New", fontsize=11,
+ color="#555555", fontcolor="#333333", margin="0.16,0.06"];
+ edge [fontname="Courier New", fontsize=10, arrowsize=0.7];
+
+ subgraph cluster_page {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="struct page";
+ page [width=2.1, label="...\n\n...|&lt;map&gt; mapping|...\n\n..."];
+ }
+
+ subgraph cluster_av {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="struct anon_vma";
+ av [width=2.1, label="&lt;lock&gt; lock|&lt;head&gt; head"];
+ }
+
+ subgraph cluster_vp {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="vm_area_struct (parent)";
+ vma_p [width=2.1, label="vm_start / vm_end|&lt;avn&gt; anon_vma_node|&lt;av&gt; anon_vma"];
+ }
+ subgraph cluster_vc {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="vm_area_struct (child)";
+ vma_c [width=2.1, label="vm_start / vm_end|&lt;avn&gt; anon_vma_node|&lt;av&gt; anon_vma"];
+ }
+ subgraph cluster_vs {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="vm_area_struct (split)";
+ vma_s [width=2.1, label="vm_start / vm_end|&lt;avn&gt; anon_vma_node|&lt;av&gt; anon_vma"];
+ }
+
+ /* page-&gt;mapping: the low bit PAGE_MAPPING_ANON marks that this is not an address_space */
+ edge [color="#a15c00", style=solid, penwidth=1.2, constraint=true];
+ page:map -&gt; av:lock [label=" | PAGE_MAPPING_ANON"];
+
+ /* anon_vma-&gt;head: a single list chaining all related VMAs */
+ edge [color="#333333", style=solid, penwidth=1.3, constraint=true];
+ av:head -&gt; vma_p:avn;
+ vma_p:avn -&gt; vma_c:avn;
+ vma_c:avn -&gt; vma_s:avn;
+ edge [style=dashed, penwidth=1.0, constraint=false];
+ vma_s:avn -&gt; av:head;
+
+ /* back-pointers of the VMAs */
+ edge [color="#999999", style=dotted, penwidth=1.0, constraint=false];
+ vma_p:av -&gt; av;
+ vma_c:av -&gt; av;
+ vma_s:av -&gt; av;
+}
+
+</code></pre>
+<h3>From anon_vma to anon_vma_chain</h3>
+<p>The anon_vma introduced in 2004 solved the memory overhead of pte_chain, but its handling of fork() was too crude: a child process's VMA was hung directly onto the parent's anon_vma, so the entire process family shared a single anon_vma.
+<img src="https://hackmd.io/_uploads/BkWjJ8_ezl.png" alt="image" /></p>
+<p>Before object rmap was merged in 2003, Andrew Morton raised concerns about this mechanism. The object rmap design walks all VMAs associated with an entire object (such as an anon_vma or address_space), which inevitably visits VMAs completely unrelated to the page being reclaimed, spending a large amount of time on the walk. In contrast, pte_chain only needs to walk the PTEs relevant to the page. He also illustrated the problem with an extreme case: with 1000 tasks using the same file, where each task has 1000 VMAs on that file, there are 1 million VMAs in total, and on unmap all 1 million VMAs must be walked no matter what. Although he only mentioned file-backed pages, since this is a problem of the design itself, anon pages could suffer the same problem.</p>
+<p>Notably, Andrew himself at the time leaned toward this being merely "theoretically possible" and not a big deal — after all, the 2.4 virtual scan design had the same problem and nobody had hit it. Seven years later, however, what Andrew Morton worried about did happen.</p>
+<blockquote>
+<p>Without the anon_vma changes, when AIM7 hits around 9.7k
+users (on a test box with 16GB RAM and not quite enough IO),
+the system ends up running &gt;99% in system time, with every
+CPU on the same anon_vma lock in the pageout code.</p>
+</blockquote>
+<p>Rik van Riel found that the AIM7 benchmark seized up when the user count reached 9.7k, with most of the time spent contending for the anon_vma lock — confirming the walking-time problem described above.</p>
+<p>In response, Rik van Riel proposed a patch addressing this. The concrete idea is to create an <code>anon_vma</code> per process and use the <code>anon_vma_chain</code> data structure to link anon_vmas and VMAs, then use same_vma and <code>same_anon_vma</code> to chain together the AVCs that map to the same "<code>vma</code> or <code>anon_vma</code>," forming a many-to-many association.</p>
+<p>After applying this patch, AIM7 only began to seize up at 29.7k users, and the bottleneck shifted to I/O wait.</p>
+<pre><code>struct anon_vma_chain {
+ struct vm_area_struct *vma;
+ struct anon_vma *anon_vma;
+ struct list_head same_vma; // all avcs that linked by same vma
+ struct list_head same_anon_vma; // all avcs that linked by same anon_vma
+};
+</code></pre>
+<p>Corresponding kernel commit/patch:</p>
+<ul>
+<li><code>5beb49305251</code> (<code>mm: change anon_vma linking to fix multi-process server scalability issue</code>).</li>
+</ul>
+<h3>anon_vma_chain interval tree</h3>
+<p>The same_anon_vma linked list was replaced with an interval tree (implemented as an augmented rbtree), keyed by the interval $[\text{vm_pgoff}, \text{vm_pgoff} + \text{vma_pages})$ covered by each VMA. The RMAP walk becomes a stabbing query on the target pgoff, returning only the VMAs whose interval actually covers that pgoff, with complexity O(log n + number of hits). In the same merge window, the long-standing prio_tree on the file-backed side was also replaced by the same interval tree (6b2dbba8b6ac); anon and file reverse walks have shared the same index structure ever since — which is where today's <code>anon_vma_interval_tree_foreach()</code> and <code>vma_interval_tree_foreach()</code> macros come from.</p>
+<pre><code>struct anon_vma_chain {
+ struct vm_area_struct *vma;
+ struct anon_vma *anon_vma;
+ struct list_head same_vma; /* locked by mmap_lock &amp; page_table_lock */
+ struct rb_node rb; /* locked by anon_vma-&gt;rwsem */
+ unsigned long rb_subtree_last;
+#ifdef CONFIG_DEBUG_VM_RB
+ unsigned long cached_vma_start, cached_vma_last;
+#endif
+};
+</code></pre>
+<p>During an RMAP walk, the anon_vma is first obtained from page-&gt;mapping, then the anon_vma_chain interval tree is walked continuously from anon_vma-&gt;rb_root, checking each corresponding VMA's vm_start and vm_end to determine whether the PTE corresponding to that VMA maps this page.</p>
+<p>Corresponding kernel commit:</p>
+<ul>
+<li><code>bf181b9f9d8d</code> (<code>mm anon rmap: replace same_anon_vma linked list with an interval tree</code>)</li>
+</ul>
+<pre><code>digraph anon_vma_chain {
+ rankdir=LR;
+ bgcolor="transparent";
+ nodesep=0.5;
+ ranksep=1.0;
+ node [shape=record, fontname="Courier New", fontsize=11,
+ color="#555555", fontcolor="#333333", margin="0.16,0.06"];
+ edge [fontname="Courier New", fontsize=10, arrowsize=0.7];
+
+ subgraph cluster_vp {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="vm_area_struct (parent)";
+ vma_p [width=2.3, label="vm_start / vm_end|&lt;avc&gt; anon_vma_chain|&lt;av&gt; anon_vma"];
+ }
+ subgraph cluster_vc {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="vm_area_struct (child)";
+ vma_c [width=2.3, label="vm_start / vm_end|&lt;avc&gt; anon_vma_chain|&lt;av&gt; anon_vma"];
+ }
+
+ subgraph cluster_ap1 {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="anon_vma_chain";
+ avc_p1 [width=2.3, label="&lt;vma&gt; vma|&lt;av&gt; anon_vma|&lt;sv&gt; same_vma|&lt;rb&gt; rb|rb_subtree_last"];
+ }
+ subgraph cluster_ac1 {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="anon_vma_chain";
+ avc_c1 [width=2.3, label="&lt;vma&gt; vma|&lt;av&gt; anon_vma|&lt;sv&gt; same_vma|&lt;rb&gt; rb|rb_subtree_last"];
+ }
+ subgraph cluster_ac2 {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="anon_vma_chain";
+ avc_c2 [width=2.3, label="&lt;vma&gt; vma|&lt;av&gt; anon_vma|&lt;sv&gt; same_vma|&lt;rb&gt; rb|rb_subtree_last"];
+ }
+
+ subgraph cluster_ava {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="anon_vma A";
+ av_a [width=2.3, label="&lt;root&gt; root|&lt;parent&gt; parent|num_children|num_active_vmas|&lt;rb&gt; rb_root"];
+ }
+ subgraph cluster_avb {
+ color="transparent"; fontname="Courier New"; fontcolor="#333333";
+ label="anon_vma B";
+ av_b [width=2.3, label="&lt;root&gt; root|&lt;parent&gt; parent|num_children|num_active_vmas|&lt;rb&gt; rb_root"];
+ }
+
+ av_a -&gt; av_b [style=invis];
+
+ /* same_vma: from the VMA's view, "which anon_vmas do I need to take care of" */
+ edge [color="#333333", style=solid, penwidth=1.3, constraint=true, dir=forward];
+ vma_p:avc -&gt; avc_p1:sv;
+ vma_c:avc -&gt; avc_c1:sv;
+ avc_c1:sv -&gt; avc_c2:sv;
+
+ /* rb: from the anon_vma's view, "which VMAs cover me" (interval tree) */
+ edge [color="#1f6feb", style=dashed, penwidth=1.2, dir=back, constraint=false];
+ avc_p1:rb -&gt; av_a:rb;
+ avc_c1:rb -&gt; av_a:rb;
+ avc_c2:rb -&gt; av_b:rb;
+
+ /* the AVC's own two pointers */
+ edge [color="#999999", style=dotted, penwidth=1.0, dir=back, constraint=true];
+ vma_p -&gt; avc_p1:vma;
+ vma_c -&gt; avc_c1:vma;
+ vma_c -&gt; avc_c2:vma;
+ edge [dir=forward, constraint=true];
+ avc_p1:av -&gt; av_a;
+ avc_c1:av -&gt; av_a;
+ avc_c2:av -&gt; av_b;
+
+ /* the VMA's own -&gt;anon_vma: new pages hang here */
+ edge [color="#a15c00", style=solid, penwidth=1.1, constraint=false];
+ vma_p:av -&gt; av_a:root;
+ vma_c:av -&gt; av_b:root;
+
+ /* anon_vma tree */
+ edge [color="#999999", style=dotted, penwidth=1.0, constraint=false];
+ av_b:parent -&gt; av_a:root [label=" parent / root"];
+}
+</code></pre>
+<h2>How RMAP Relates to the Current Page Reclaim Implementation</h2>
+<p>When major fault handling finds that the amount of available pages has fallen below a certain level, the page reclaim mechanism kicks in: <code>kswapd</code> is triggered when available memory falls below <code>WMARK_LOW</code>, or direct reclaim is performed by the page fault handler itself when available memory falls below <code>WMARK_MIN</code>. During reclaim, victims are selected for reclaim from cold data first, according to the LRU tier the page belongs to.</p>
+<p>Both direct reclaim and kswapd eventually call into <code>shrink_node()</code></p>
+<pre><code># background reclaim
+kswapd -&gt; balance_pgdat -&gt; shrink_node -&gt; shrink_lruvec
+ -&gt; shrink_folio_list -&gt; {folio_referenced, try_to_unmap} -&gt; __rmap_walk_file ...
+
+# direct reclaim
+__alloc_pages -&gt; __alloc_pages_slowpath -&gt; try_to_free_pages
+ -&gt; shrink_node -&gt; shrink_lruvec -&gt; ...
+</code></pre>
+<h3>Observing How the Active/Inactive Lists Use RMAP</h3>
+<p><img src="https://hackmd.io/_uploads/HJCafU2UGl.png" alt="image" /></p>
+<p>Access detection in the traditional Active/Inactive lists is built entirely on RMAP. The kernel cannot be notified at the moment the hardware sets the Accessed bit; it can only poll after the fact: folio_referenced() performs one RMAP walk over the folio, checking and clearing the Accessed bit of every mapping PTE one by one, returning "how many VMAs have accessed it since the last check."</p>
+<p>Concretely, two paths perform RMAP walks:</p>
+<ol>
+<li>Demotion: check whether the folio at the tail of the Active LRU list has been accessed; if not, move it to the inactive list.</li>
+<li>Eviction: check whether the folio at the tail of the Inactive LRU list has been accessed; if not, drop the folio; otherwise move it back to the Inactive list.</li>
+</ol>
+<p>Taking <code>kswapd</code> as an example, its call path into RMAP is:</p>
+<pre><code>kswapd -&gt; balance_pgdat -&gt; shrink_node -&gt; shrink_lruvec
+ ├── shrink_active_list
+ │ └── folio_referenced -&gt; __rmap_walk_file
+ │ ├── folio_referenced_one -&gt; page_vma_mapped_walk
+ │ └── vma_interval_tree_iter_first
+ └── shrink_folio_list
+ ├── folio_referenced -&gt; __rmap_walk_file -&gt; folio_referenced_one
+ │ └── page_vma_mapped_walk
+ └── try_to_unmap -&gt; __rmap_walk_file -&gt; try_to_unmap_one
+ └── set_tlb_ubc_flush_pending
+</code></pre>
+<h3>How MGLRU Reduces RMAP Overhead</h3>
+<h4>Architectural Improvements</h4>
+<p>First, at the architectural level, the Active/Inactive lists must operate on both the active and inactive LRU lists during eviction, whereas MGLRU — thanks to the natural aging property of its generations — only needs to operate on the oldest generation (min_seq) during eviction.</p>
+<p><img src="https://hackmd.io/_uploads/SkX_XU3UMg.png" alt="mglru_list" /></p>
+<pre><code>kswapd -&gt; balance_pgdat -&gt; kswapd_shrink_node -&gt; shrink_node
+└── lru_gen_shrink_node
+ └── shrink_one (global) / shrink_many -&gt; shrink_one (memcg)
+ └── try_to_shrink_lruvec -&gt; evict_folios
+ └── shrink_folio_list
+ ├── folio_check_references -&gt; folio_referenced
+ │ └── rmap_walk -&gt; rmap_walk_anon / rmap_walk_file
+ │ └── folio_referenced_one
+ │ └── page_vma_mapped_walk # all fixed costs are paid in full before this point
+ │ └── lru_gen_look_around # a 64-PTE window with near-zero marginal cost
+ │ ├── get_pte_pfn / get_pfn_folio
+ │ ├── walk_update_folio # promote neighbors in place
+ │ └── update_bloom_filter # feed back to aging
+ └── try_to_unmap -&gt; rmap_walk -&gt; try_to_unmap_one
+</code></pre>
+<p>Next, consider the cost structure of an RMAP walk. To check the Accessed bit of a single PTE, folio_referenced() must always pay: acquiring the VMA object lock, walking the interval tree, page_vma_mapped_walk() descending the page table level by level to locate the PTE, and acquiring the page table lock (PTL). Meanwhile, the LRU is organized by physical pages, and adjacent folios on the list come from different VMAs of different processes. Thus every walk is a set of lock and tree operations with zero cache reuse. High fixed cost, and none of it amortized — this is why page_vma_mapped_walk eats 18.47% of kswapd's CPU.</p>
+<pre><code> patch1-6
+ 39.03% lzo1x_1_do_compress (real work)
+ 18.47% page_vma_mapped_walk (overhead)
+ 6.74% _raw_spin_unlock_irq
+ 3.97% do_raw_spin_lock
+ 2.49% ptep_clear_flush
+ 2.48% anon_vma_interval_tree_iter_first
+ 1.92% folio_referenced_one
+ 1.88% __zram_bvec_write
+ 1.48% memmove
+ 1.31% vma_interval_tree_iter_next
+
+ patch1-7
+ 48.16% lzo1x_1_do_compress (real work)
+ 8.20% page_vma_mapped_walk (overhead)
+ 7.06% _raw_spin_unlock_irq
+ 2.92% ptep_clear_flush
+ 2.53% __zram_bvec_write
+ 2.11% do_raw_spin_lock
+ 2.02% memmove
+ 1.93% lru_gen_look_around
+ 1.56% free_unref_page_list
+ 1.40% memset
+</code></pre>
+<p>Hence <code>lru_gen_look_around()</code> exploits the spatial locality of memory to improve page reclaim and hot page identification. When <code>shrink_folio_list</code> finds a hot PTE (Accessed bit = 1), it draws a PMD scan window centered on that PTE address, searching a total of BITS_PER_LONG PTEs within it, checking whether the Accessed bits of these neighboring PTEs are also 1 (young), and when there are enough hot pages, adds the PMD to a Bloom filter to serve as auxiliary information during aging.</p>
+<p>$$f(young, total) = young \times n \ge total$$
+$n=clamp(cacheline\div sizeof(pte),2,8)$</p>
+<p>Finally, the aging part. As mentioned above, when a PMD contains enough hot pages, it is added to the Bloom filter. When aging performs its page table walk, it first queries the Bloom filter for each PMD entry. If the PMD exists in the Bloom filter, it means the PMD's hot-page density is high enough that it is worth continuing to walk the PTEs inside and performing promote/protect.</p>
+<h3>Reclaim Behavior</h3>
+<p>![image](https://hackmd.io/_uploads/ryB_kL3Ifx.png =200x)</p>
+<ul>
+<li>cgroup memory.reclaim
+<ul>
+<li>Proactive, manually triggered</li>
+<li><code>echo &lt;size&gt; &gt; /sys/fs/cgroup/&lt;cg-name&gt;/memory.reclaim</code></li>
+</ul>
+</li>
+<li>direct reclaim
+<ul>
+<li>Reactive, triggered when available memory is extremely scarce (watermark below WMARK_MIN)</li>
+<li>Executes synchronously; the memory watermark is checked on page fault</li>
+<li>Stops once the watermark rises to WMARK_LOW</li>
+</ul>
+</li>
+<li>kswapd
+<ul>
+<li>Triggered when the available memory watermark falls below WMARK_LOW</li>
+<li>Runs in the background, stops at WMARK_HIGH</li>
+</ul>
+</li>
+</ul>
+<h2>How Cloud Companies Customize Reclaim Policies</h2>
+<ul>
+<li>Why? The kernel's reclaim policy mainly targets the general case. Cloud vendors found that it causes regressions under specific workloads, so they need to implement their own reclaim policies to meet their needs.</li>
+</ul>
+<h3>Google: kstaled / kreclaimd (ASPLOS 2019)</h3>
+<p><img src="https://hackmd.io/_uploads/HkBg4IhIMx.png" alt="image" /></p>
+<ul>
+<li>kstaled: periodically walks page tables reading the pages' Accessed bits to track page age</li>
+<li>kreclaimd: compresses pages whose age exceeds a threshold into zswap</li>
+<li>Architectural evolution:
+<ol>
+<li>sysfs + bitmap</li>
+<li>kstaled / kreclaimd</li>
+</ol>
+</li>
+<li>Overhead grows linearly with memory size and scan frequency
+<ul>
+<li>kstaled scanning changed to a PMD linked-list walk (3.5x lower CPU usage)</li>
+<li>kreclaimd changed to consume kstaled's data</li>
+</ul>
+</li>
+</ul>
+<h4>LSF MM 19</h4>
+<p>Since this reclaim policy could not be handled in userspace, Shakeel Butt led a proposal at LSF MM 19 to push it upstream.</p>
+<ul>
+<li>Community remarks and questions
+<ul>
+<li>Rik van Riel: even if performance genuinely improves, scalability problems remain</li>
+<li>Attendee: why not just use kswapd?</li>
+</ul>
+<blockquote>
+<p>It "kind of works", he said, but is based on watermarks (keeping a certain percentage of memory free) rather than on idleness. kswapd also tries to balance memory usage across NUMA nodes, which is not useful in this setting. Finally, Butt said, kswapd is built on a large set of complicated heuristics, and he doesn't want to try to change them.</p>
+</blockquote>
+<ul>
+<li>Johannes Weiner: why redo what the LRU list already does, at an outrageously higher cost?</li>
+</ul>
+<blockquote>
+<p>Google was willing to pay that cost, which was less than having the system go into direct reclaim.</p>
+</blockquote>
+</li>
+</ul>
+<p>Community consensus: this kind of proactive reclaim is indeed useful to quite a few users, but the cost of this particular solution is too high to be worth considering for merging upstream.</p>
+<h3>sjp38: DAMON/S (Data Access MONitoring[-based operation Schemes])</h3>
+<ul>
+<li>By SeongJae Park (sjp38), a former Amazon employee
+<img src="https://hackmd.io/_uploads/BJqw4P3Lzg.png" alt="image" /></li>
+<li>Region-based sampling
+<ul>
+<li>Changes the monitoring granularity from pages (as in Google's architecture above) to regions (region size is configurable)</li>
+<li>Uses sampling to observe region hotness</li>
+<li>Each sampling round randomly picks one page per region, waits one interval, then checks whether it was accessed; on a hit, the region's nr_accesses is incremented by 1.</li>
+</ul>
+</li>
+<li>Adaptive Regions Adjustment
+<ul>
+<li>The premise is that pages within the same region have similar hotness, and access patterns change over time, so DAMON automatically merges and splits regions based on access frequency to continuously maintain this premise.</li>
+</ul>
+</li>
+<li>Reclaim policies can be designed based on the observed information (DAMOS)
+<ul>
+<li>Example: DAMON_RECLAIM</li>
+</ul>
+</li>
+</ul>
+<h2>Conclusion</h2>
+<ul>
+<li>RMAP architectural improvements revolve around the cost of scanning page tables</li>
+<li>MGLRU spreads the overall overhead of RMAP walking across its parts, trading a higher single RMAP walk cost for fewer RMAP walks</li>
+</ul>
+<hr />
+<h1>Reference</h1>
+<ul>
+<li>https://lwn.net/Articles/23732/</li>
+<li>https://web.archive.org/web/20141113083201/http://www.surriel.com:80/patches/2.4/2.4.17-rmap-12e</li>
+<li>https://lwn.net/Articles/23742/</li>
+<li>https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=5beb49305251</li>
+<li>https://lore.kernel.org/lkml/20211019150731.16699-1-sj@kernel.org/</li>
+<li>https://docs.kernel.org/admin-guide/mm/damon/</li>
+<li>https://research.google/pubs/software-defined-far-memory-in-warehouse-scale-computers/</li>
+<li>https://hackmd.io/@hank20010209/HyDVgwjyll</li>
+<li>https://lore.kernel.org/lkml/Pine.LNX.4.44.0405182310200.3416-100000@localhost.localdomain/</li>
+<li>https://lwn.net/Articles/787611/</li>
+<li>https://static.sched.com/hosted_files/ossna2023/b0/damon_damos_damo_ossummit_na_2023.pdf</li>
+</ul>
+]]></content>
+    <author><name>c8763yee</name></author>
+    <category term="Conference"/>
   </entry>
   <entry>
     <title>帶你深入淺出 Git 版本控制實戰</title>
@@ -844,6 +1356,6 @@ echo 'helloworld'
 <p><img src="https://hackmd.io/_uploads/H1F1f49PA.png" alt="image" /></p>
 ]]></content>
     <author><name>c8763yee</name></author>
-    <category term="教學"/>
+    <category term="教學文章"/>
   </entry>
 </feed>
