@@ -1,6 +1,6 @@
 # c8763yee's website
 
-> I Use Linux BTW
+> Linux Kernel, Memory Management & Systems Notes
 
 This is the llms.txt file for c8763yee's website. It provides a machine-readable directory of published articles and core pages for Large Language Models.
 
@@ -10,10 +10,10 @@ This is the llms.txt file for c8763yee's website. It provides a machine-readable
 - [Archive](https://c8763yee.github.io/archive/): Chronological index of all published writings.
 
 ## Articles
-- [COSCUP 2026: from COMPUTER to COMPUTing centER: The history of linux memory management](https://c8763yee.github.io/posts/from-computer-to-computing-center-the-history-of-linux-memory-management/): English version of 從個人電腦到資料中心：Linux 記憶體管理演化
-- [COSCUP 2026: 從個人電腦到資料中心：Linux 記憶體管理演化](https://c8763yee.github.io/posts/從個人電腦到資料中心linux-記憶體管理演化/): COSCUP 2026
+- [COSCUP 2026: from COMPUTER to COMPUTing centER: The history of linux memory management](https://c8763yee.github.io/posts/from-computer-to-computing-center-the-history-of-linux-memory-management/): How Linux memory management evolved from page tables and reverse mapping to page reclaim and MGLRU for modern data-center workloads.
+- [COSCUP 2026: 從個人電腦到資料中心：Linux 記憶體管理演化](https://c8763yee.github.io/posts/從個人電腦到資料中心linux-記憶體管理演化/): 從 Page Table、RMAP、LRU 到 MGLRU，整理 Linux 記憶體管理與頁面回收機制如何演進，以因應資料中心的記憶體 overcommit 與現代工作負載。
 - [帶你深入淺出 Git 版本控制實戰](https://c8763yee.github.io/posts/帶你深入淺出-git-版本控制實戰/): NUTC IMAC Git 課程講義：從版本控制概念、安裝與本地操作，到 SSH 金鑰、遠端協作與 Git Flow 等分支策略。
-- [Build Linux kernel](https://c8763yee.github.io/posts/build-linux-kernel/)
+- [Build Linux kernel](https://c8763yee.github.io/posts/build-linux-kernel/): Build and configure a Linux kernel from source, including debugging-oriented menuconfig options, compilation, installation, and development setup.
 
 ## Full Text Dump
 - [Full Text Archive](https://c8763yee.github.io/llms-full.txt): Complete, concatenated Markdown content of all public articles for full-context ingestion.
